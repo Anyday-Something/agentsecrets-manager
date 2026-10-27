@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentSecrets Manager</title>
+<style>
+/* Palette taken from the agentsecrets CLI (pkg/ui/ui.go): brand teal #00C6A5,
+   teal-300 #5EEAD4, emerald #34D399, red-400 #F87171, amber-400 #FBBF24, gray-800 #1F2937.
+   Like the CLI, the darker shades are used on light backgrounds so text stays readable. */
+:root {
+  --bg: #f4f7f7; --panel: #ffffff; --side: #e9efee; --text: #111827; --muted: #5b6472;
+  --line: #d5dddc; --accent: #00C6A5; --accent-ink: #00806b; --accent-text: #04241f;
+  --danger: #dc2626; --ok: #059669; --warn: #b45309;
+  --hover: rgba(17,24,39,.05); --sel: rgba(0,198,165,.16); --code: #eef3f2;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111827; --panel: #172030; --side: #0b111c; --text: #e5e7eb; --muted: #9ca3af;
+    --line: #1F2937; --accent: #00C6A5; --accent-ink: #5EEAD4; --accent-text: #04241f;
+    --danger: #F87171; --ok: #34D399; --warn: #FBBF24;
+    --hover: rgba(255,255,255,.05); --sel: rgba(0,198,165,.18); --code: #0f1724; }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body { font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  background: var(--bg); color: var(--text); display: flex; }
+button, input, select { font: inherit; color: inherit; }
+button { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 5px 11px; cursor: pointer; }
+button:hover { background: var(--hover); }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.primary:hover { filter: brightness(1.08); }
+button.danger { color: var(--danger); }
+button.icon { border: none; background: none; padding: 3px 7px; color: var(--muted); }
+button.icon:hover { color: var(--text); background: var(--hover); }
+button:disabled { opacity: .5; cursor: default; }
+input, select { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; outline: none; }
+input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--sel); }
+
+aside { width: 250px; flex: none; background: var(--side); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 14px 10px; gap: 12px; overflow: auto; }
+.brand { font-weight: 600; font-size: 15px; padding: 2px 6px; display: flex; align-items: center; gap: 8px; }
+.brand .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+  padding: 0 6px; display: flex; justify-content: space-between; align-items: center; }
+.label button { font-size: 16px; line-height: 1; }
+#workspace { width: 100%; }
+.plist { display: flex; flex-direction: column; gap: 1px; }
+.pitem { padding: 7px 9px; border-radius: 7px; cursor: pointer; display: flex; flex-direction: column; }
+.pitem:hover { background: var(--hover); }
+.pitem.sel { background: var(--sel); }
+.pitem .d { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.foot { margin-top: auto; font-size: 12px; color: var(--muted); padding: 0 6px; display: flex; flex-direction: column; gap: 6px; }
+
+main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+header { padding: 16px 22px 0; display: flex; align-items: center; gap: 10px; }
+header h1 { font-size: 20px; margin: 0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header .sub { color: var(--muted); font-size: 13px; font-weight: 400; margin-left: 8px; }
+.tabs { display: flex; gap: 4px; padding: 14px 22px 0; border-bottom: 1px solid var(--line); }
+.tab { padding: 8px 14px; border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); }
+.tab:hover { background: none; color: var(--text); }
+.tab.sel { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tab .n { font-size: 11px; background: var(--hover); border-radius: 9px; padding: 1px 7px; margin-left: 5px; font-weight: 500; }
+.toolbar { display: flex; gap: 8px; padding: 12px 22px; align-items: center; flex-wrap: wrap; }
+.toolbar .grow { flex: 1; }
+#search { width: 220px; }
+.content { flex: 1; overflow: auto; padding: 0 22px 22px; }
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--hover); }
+table.grid td { padding: 6px 12px; }
+td.key { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; cursor: copy; }
+td.key:hover { color: var(--accent-ink); }
+tr[draggable=true] td.key::before { content: "⠿"; color: var(--muted); margin-right: 8px; opacity: .45; cursor: grab; }
+tr.dragging { opacity: .4; }
+td.tags { white-space: nowrap; width: 1%; padding-right: 4px; }
+td.act { text-align: right; white-space: nowrap; width: 1%; padding-left: 4px; }
+.tag { display: inline-block; font: 600 10px/1 -apple-system, sans-serif; letter-spacing: .04em; padding: 4px 7px; border-radius: 10px;
+  margin-left: 4px; cursor: pointer; user-select: none; border: 1px solid transparent; }
+.tag.on { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.tag.off { background: var(--hover); color: var(--muted); }
+.tag:hover { border-color: currentColor; }
+.tag.on[draggable=true] { cursor: grab; }
+.tag.editing { border-color: var(--accent); }
+.tag.pending { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+.tag.dragging { opacity: .4; }
+.tag.dropok { outline: 2px dashed var(--accent); outline-offset: 1px; }
+.rowtrash { opacity: 0; }
+tr:hover .rowtrash, .rowtrash:focus { opacity: 1; }
+.editrow td { background: var(--sel); }
+tr.editrow:hover td { background: var(--sel); }
+.editor { display: flex; align-items: center; gap: 4px; }
+.editor input { flex: 1; min-width: 0; padding: 5px 8px; font: 12px ui-monospace, Menlo, monospace; }
+.confirm { font-size: 12px; margin: 0 2px 0 6px; white-space: nowrap; }
+button.icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: 7px; }
+button.icon.danger { color: var(--danger); }
+button.icon.accent { background: var(--accent); color: var(--accent-text); }
+button.icon.accent:hover { filter: brightness(1.08); background: var(--accent); }
+button.icon:disabled { opacity: .35; }
+/* Hover tooltips */
+[data-tip] { position: relative; }
+[data-tip]:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: var(--text); color: var(--bg); font: 500 11px/1.2 -apple-system, sans-serif; padding: 5px 8px; border-radius: 6px;
+  white-space: nowrap; z-index: 50; pointer-events: none; }
+.tip-r:hover::after { left: auto; right: 0; transform: none; }
+.tip-l:hover::after { left: 0; transform: none; }
+.tip-up:hover::after { top: auto; bottom: calc(100% + 6px); }
+.navtitle { display: flex; align-items: center; gap: 6px; }
+.label button.icon { width: 22px; height: 22px; }
+.pitem.drop { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--sel); }
+.pitem.dropok { background: var(--accent); color: var(--accent-text); }
+#pwbar { display: flex; gap: 8px; align-items: center; margin: 0 22px 12px; padding: 10px 12px; border-radius: 9px; background: var(--sel); font-size: 13px; }
+#pwbar input { width: 220px; }
+.tip { color: var(--muted); font-size: 12px; padding: 10px 2px 0; }
+.empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+.empty h2 { color: var(--text); font-size: 17px; margin: 0 0 6px; }
+
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 10; }
+.dialog { background: var(--panel); border-radius: 12px; padding: 20px; width: min(440px, calc(100vw - 32px));
+  box-shadow: 0 20px 60px rgba(0,0,0,.3); display: flex; flex-direction: column; gap: 12px; }
+.dialog h3 { margin: 0; font-size: 16px; }
+.dialog p { margin: 0; color: var(--muted); }
+.dialog label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.dialog label.row { flex-direction: row; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
+.dialog input[type=text], .dialog input[type=password], .dialog select, .dialog textarea { width: 100%; }
+.dialog textarea { font: 12px ui-monospace, Menlo, monospace; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 8px; min-height: 80px; resize: vertical; }
+.dialog .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.err { color: var(--danger); font-size: 12px; white-space: pre-wrap; max-height: 180px; overflow: auto; background: var(--code); border-radius: 7px; padding: 8px; }
+
+#toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg);
+  padding: 9px 16px; border-radius: 9px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 20; max-width: 80vw; }
+#toast.show { opacity: .95; }
+#busy { position: fixed; top: 0; left: 0; right: 0; height: 2px; background: var(--accent); transform-origin: left; animation: load 1.2s ease-in-out infinite; display: none; z-index: 30; }
+@keyframes load { 0% { transform: scaleX(0); } 50% { transform: scaleX(.7); } 100% { transform: scaleX(1); opacity: 0; } }
+.spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: r .8s linear infinite; vertical-align: -2px; }
+@keyframes r { to { transform: rotate(360deg); } }
+
+.brand { color: var(--text); }
+.brand .dot { background: var(--accent); box-shadow: 0 0 0 3px var(--sel); }
+th.env:nth-of-type(4) { color: var(--warn); }
+.badge { color: var(--warn); border-color: currentColor; }
+.act-added { color: var(--ok); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+.act-removed { color: var(--danger); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+.tab.sel, a { color: var(--accent-ink); }
+#busy { background: var(--accent); }
+</style>
+</head>
+<body>
+<div id="busy"></div>
+<aside>
+  <div class="brand"><span class="dot"></span>AgentSecrets</div>
+  <div>
+    <div class="label">Workspace <button class="icon tip-r" data-tip="New workspace" onclick="newWorkspace()" id="btn-newws"></button></div>
+    <div style="padding:6px 4px 0"><select id="workspace" onchange="switchWorkspace(this.value)"></select></div>
+  </div>
+  <div class="plist"><div class="pitem" id="navallow" onclick="openAllowlist()"><span class="navtitle"><span id="ic-globe"></span>Allowed domains</span><span class="d">Where the proxy may send credentials</span></div></div>
+  <div class="label">Projects <button class="icon tip-r" data-tip="New project" onclick="newProject()" id="btn-newproj"></button></div>
+  <div class="plist" id="projects"><div class="pitem"><span class="spin"></span></div></div>
+  <div class="foot">
+    <div id="who"></div>
+    <div style="display:flex; gap:2px">
+      <button class="icon tip-up tip-l" onclick="refreshAll()" data-tip="Refresh everything" id="btn-refresh"></button>
+      <button class="icon tip-up tip-l" onclick="quit()" data-tip="Quit" id="btn-quit"></button>
+    </div>
+  </div>
+</aside>
+<main id="main">
+  <div class="empty"><span class="spin"></span></div>
+</main>
+<div id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const ENVS = ["development", "staging", "production"];
+// Simple stroke icons (24×24 grid, drawn at 16px, colour from the button).
+const svg = (d) => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const I = {
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>'),
+  pencil: svg('<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>'),
+  plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  copy: svg('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>'),
+  import: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+  eraser: svg('<path d="M8 20h12M5 15l9-9 5 5-8 8H8l-3-3z"/><path d="M10 10l5 5"/>'),
+  check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+  x: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  unset: svg('<circle cx="12" cy="12" r="8"/><path d="M6.5 17.5l11-11"/>'),
+  refresh: svg('<path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4"/>'),
+  power: svg('<path d="M12 3v8M6.4 6.4a8 8 0 1 0 11.2 0"/>'),
+  globe: svg('<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"/>'),
+};
+const state = { projects: [], project: null, secrets: [], search: "", edit: null, editValue: "", ask: null, askRow: null,
+  adding: false, saving: new Set(), drag: null, busyMsg: null, pw: null, pwAsk: null,
+  cache: {}, inflight: {}, view: "project", allow: null, allowErr: null, allowAsk: null, allowInput: "" };
+
+// ---------- api ----------
+let busyCount = 0;
+function busy(d) { busyCount += d; document.getElementById("busy").style.display = busyCount > 0 ? "block" : "none"; }
+async function api(path, body) {
+  busy(1);
+  try {
+    const r = await fetch(path, body === undefined
+      ? { headers: { "X-Token": TOKEN } }
+      : { method: "POST", headers: { "X-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({ error: "Bad response from server" }));
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    return j;
+  } finally { busy(-1); }
+}
+const act = (name, body) => api("/api/do/" + name, body);
+
+// ---------- ui helpers ----------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2600); }
+
+// Generic dialog: fields = [{name,label,type,value,placeholder,options}]; returns values or null.
+function dialog({ title, text, fields = [], ok = "OK", danger = false, run }) {
+  return new Promise((resolve) => {
+    const o = document.createElement("div");
+    o.className = "overlay";
+    o.innerHTML = `<form class="dialog" autocomplete="off">
+      <h3>${esc(title)}</h3>${text ? `<p>${text}</p>` : ""}
+      ${fields.map((f) => f.type === "select"
+        ? `<label>${esc(f.label)}<select name="${f.name}">${f.options.map((x) => `<option value="${esc(x.value ?? x)}" ${(x.value ?? x) === f.value ? "selected" : ""}>${esc(x.label ?? x)}</option>`).join("")}</select></label>`
+        : f.type === "checkbox"
+        ? `<label class="row"><input type="checkbox" name="${f.name}" ${f.value ? "checked" : ""}>${esc(f.label)}</label>`
+        : f.type === "textarea"
+        ? `<label>${esc(f.label)}<textarea name="${f.name}" placeholder="${esc(f.placeholder || "")}">${esc(f.value || "")}</textarea></label>`
+        : `<label>${esc(f.label)}<input type="${f.type || "text"}" name="${f.name}" value="${esc(f.value || "")}" placeholder="${esc(f.placeholder || "")}" ${f.readonly ? "readonly" : ""} spellcheck="false"></label>`).join("")}
+      <div class="err" hidden></div>
+      <div class="btns"><button type="button" data-x>Cancel</button><button type="submit" class="${danger ? "primary danger" : "primary"}" ${danger ? 'style="background:var(--danger);border-color:var(--danger);color:#fff"' : ""}>${esc(ok)}</button></div>
+    </form>`;
+    document.body.appendChild(o);
+    const form = o.querySelector("form");
+    const close = (v) => { o.remove(); resolve(v); };
+    o.querySelector("[data-x]").onclick = () => close(null);
+    o.addEventListener("keydown", (e) => { if (e.key === "Escape") close(null); });
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const v = {};
+      fields.forEach((f) => { const el = form.elements[f.name]; v[f.name] = f.type === "checkbox" ? el.checked : el.value; });
+      if (!run) return close(v);
+      const btn = form.querySelector("[type=submit]"), err = form.querySelector(".err");
+      btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; err.hidden = true;
+      try { close(await run(v) ?? v); }
+      catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; btn.textContent = ok; }
+    };
+    // Only show the password field when the chosen environment needs it.
+    if (form.elements.env && form.elements.password) {
+      const pw = form.elements.password.closest("label");
+      const sync = () => { pw.hidden = !needsPw(form.elements.env.value); };
+      form.elements.env.addEventListener("change", sync); sync();
+    }
+    const first = form.querySelector("input:not([readonly]),select,textarea");
+    (first || form.querySelector("[type=submit]")).focus();
+  });
+}
+const PW_FIELD = { name: "password", label: "AgentSecrets password (needed for production)", type: "password" };
+const needsPw = (env) => env === "production" || env === "all";
+
+// ---------- loading ----------
+// Everything renders from memory first (the last snapshot), then refreshes from
+// the CLI in the background. Switching projects never waits on the network.
+function applyStatus(s) {
+  if (!s) return true;
+  if (!s.loggedIn) {
+    $("#main").innerHTML = `<div class="empty"><h2>Not logged in</h2>Run <code>agentsecrets login</code> in Terminal, then click Refresh.<pre class="err" style="text-align:left;margin-top:16px">${esc(s.raw)}</pre></div>`;
+    return false;
+  }
+  $("#who").textContent = s.info["Logged in as"] || "";
+  return true;
+}
+function applyWorkspaces(ws) {
+  if (!ws) return;
+  $("#workspace").innerHTML = ws.map((w) => `<option value="${esc(w.name)}" ${w.active ? "selected" : ""}>${esc(w.name)} (${esc(w.type)})</option>`).join("");
+}
+function applyProjects(ps) {
+  if (!ps) return;
+  state.projects = ps;
+  if (state.project && !ps.find((p) => p.name === state.project)) state.project = null;
+  if (!state.project && ps.length) state.project = (ps.find((p) => p.active) || ps[0]).name;
+  renderProjects();
+}
+async function loadStatus() {
+  try { return applyStatus(await api("/api/status")); }
+  catch (e) {
+    $("#main").innerHTML = `<div class="empty"><h2>Can't reach the AgentSecrets CLI</h2><pre class="err" style="text-align:left">${esc(e.message)}</pre></div>`;
+    return false;
+  }
+}
+async function loadWorkspaces() { applyWorkspaces(await api("/api/workspaces")); }
+async function loadProjects() { applyProjects(await api("/api/projects")); }
+
+const busyProject = (p) => (state.inflight[p] || 0) > 0;
+// Fetch one project's list from the cloud; apply it unless a change is in flight.
+async function refreshSecrets(project) {
+  try {
+    const list = await api("/api/secrets?project=" + encodeURIComponent(project));
+    if (busyProject(project)) return;
+    state.cache[project] = list;
+    if (state.project === project && state.view === "project" && !state.edit && !state.adding) { state.secrets = list; renderMain(); }
+  } catch (e) {
+    if (state.project === project && !state.cache[project]) renderMain(false, e.message);
+  }
+}
+async function loadSecrets() {
+  resetEditing(); state.resetScroll = true;
+  const p = state.project;
+  if (!p) return renderMain();
+  if (state.cache[p]) { state.secrets = state.cache[p]; renderMain(); }
+  else { state.secrets = []; renderMain(true); }
+  if (!busyProject(p)) refreshSecrets(p);
+}
+async function refreshAll() {
+  // 1. Instant: last snapshot.
+  try {
+    const snap = await api("/api/snapshot");
+    Object.assign(state.cache, snap.secrets || {});
+    applyStatus(snap.status); applyWorkspaces(snap.workspaces); applyProjects(snap.projects);
+    if (state.project) loadSecrets();
+  } catch (e) { /* no snapshot yet */ }
+  // 2. Fresh: CLI lists in parallel, then every project's secrets in parallel.
+  const [ok, err] = await Promise.all([loadStatus(), Promise.all([loadWorkspaces(), loadProjects()]).then(() => null, (e) => e)]);
+  if (!ok) return;
+  if (err) { $("#main").innerHTML = `<div class="empty"><h2>Something went wrong</h2><pre class="err" style="text-align:left">${esc(err.message)}</pre></div>`; return; }
+  if (state.project && !state.cache[state.project]) loadSecrets();
+  const order = [state.project, ...state.projects.map((p) => p.name).filter((n) => n !== state.project)].filter(Boolean);
+  order.forEach((n) => { if (!busyProject(n)) refreshSecrets(n); });
+  api("/api/allowlist").then((a) => { state.allow = a; if (state.view === "allowlist") renderAllowlist(); }, () => {});
+}
+
+// ---------- rendering ----------
+function renderProjects() {
+  const el = $("#projects");
+  if (!state.projects.length) { el.innerHTML = `<div class="pitem" style="color:var(--muted)">No projects yet</div>`; return; }
+  el.innerHTML = state.projects.map((p) => `<div class="pitem ${state.view === "project" && p.name === state.project ? "sel" : ""}" data-name="${esc(p.name)}">
+    <span>${esc(p.name)}</span>${p.description ? `<span class="d">${esc(p.description)}</span>` : ""}</div>`).join("");
+  $("#navallow").classList.toggle("sel", state.view === "allowlist");
+  el.querySelectorAll(".pitem[data-name]").forEach((d) => {
+    d.onclick = () => {
+      if (state.view === "project" && state.project === d.dataset.name) return;
+      const same = state.project === d.dataset.name;
+      state.view = "project"; state.project = d.dataset.name; resetEditing(); renderProjects();
+      same ? renderMain() : loadSecrets();
+    };
+    // Drop target: drag a secret row here to add its key to this project.
+    d.ondragover = (e) => {
+      if (state.drag?.type !== "key" || d.dataset.name === state.drag.project) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = e.altKey ? "copy" : "move"; d.classList.add("dropok");
+    };
+    d.ondragleave = () => d.classList.remove("dropok");
+    d.ondrop = (e) => {
+      e.preventDefault(); d.classList.remove("dropok");
+      const g = state.drag; state.drag = null;
+      if (g?.type === "key" && g.project === state.project) runTransfer({ key: g.key, to: d.dataset.name, move: !e.altKey });
+    };
+  });
+}
+function resetEditing() { state.edit = null; state.ask = null; state.askRow = null; state.adding = false; }
+const cellId = (key, env) => key + "|" + env;
+const SHORT = { development: "DEV", staging: "STG", production: "PROD" };
+
+function tagHtml(s, env) {
+  const pend = state.saving.has(cellId(s.key, env)) ? " pending" : "";
+  const editing = state.edit && state.edit.key === s.key && state.edit.env === env ? " editing" : "";
+  const tip = s[env] ? `${env}: set — click to change, drag to another tag to move (⌥ copy)` : `${env}: unset — click to set`;
+  return `<span class="tag ${s[env] ? "on" : "off"}${pend}${editing}" data-tag="${env}" ${s[env] ? 'draggable="true"' : ""} title="${tip}">${SHORT[env]}</span>`;
+}
+
+function editorRow(s) {
+  const { env } = state.edit;
+  const asking = state.ask && state.ask.key === s.key && state.ask.env === env;
+  return `<tr class="editrow"><td colspan="3"><div class="editor">
+    <span class="tag ${s[env] ? "on" : "off"}">${SHORT[env]}</span>
+    <input type="text" data-edit spellcheck="false" autocomplete="off" placeholder="${s[env] ? "New" : ""} ${env} value for ${esc(s.key)} — ↵ save · esc cancel" value="${esc(state.editValue)}">
+    <button class="icon" data-save data-tip="Save (↵)">${I.check}</button>
+    ${s[env] ? (asking
+      ? `<span class="confirm">Unset ${SHORT[env]}?</span><button class="icon danger" data-yes data-tip="Yes, unset">${I.check}</button><button class="icon" data-no data-tip="Keep it">${I.x}</button>`
+      : `<button class="icon danger" data-unset data-tip="Unset in ${env}">${I.unset}</button>`) : ""}
+    <button class="icon tip-r" data-cancel data-tip="Cancel (esc)">${I.x}</button>
+  </div></td></tr>`;
+}
+
+function renderMain(loading = false, error = null) {
+  const m = $("#main");
+  if (state.view === "allowlist") return renderAllowlist();
+  if (!state.project) {
+    m.innerHTML = `<div class="empty"><h2>No project selected</h2>Create your first project to start storing secrets.<br><br><button class="primary" onclick="newProject()">New project</button></div>`;
+    return;
+  }
+  // Keep the scroll position across re-renders (reset only when switching projects).
+  const scrollY = state.resetScroll ? 0 : ($("#main .content")?.scrollTop || 0);
+  state.resetScroll = false;
+  const p = state.projects.find((x) => x.name === state.project) || {};
+  const rows = state.secrets.filter((s) => s.key.toLowerCase().includes(state.search.toLowerCase()));
+  const none = loading || !state.secrets.length ? "disabled" : "";
+  m.innerHTML = `
+    <header>
+      <h1>${esc(p.name)}<span class="sub">${esc(p.description || "")}</span></h1>
+      <button class="icon" onclick="editProject()" data-tip="Rename project">${I.pencil}</button>
+      <button class="icon danger tip-r" onclick="deleteProject()" data-tip="Delete project">${I.trash}</button>
+    </header>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Filter keys…" value="${esc(state.search)}">
+      <span class="grow"></span>
+      <button class="icon" onclick="importEnv()" data-tip="Import .env">${I.import}</button>
+      <button class="icon" onclick="copyEnv()" ${none} data-tip="Copy a whole environment">${I.copy}</button>
+      <button class="icon danger" onclick="cleanEnv()" ${none} data-tip="Clear an environment">${I.eraser}</button>
+      <button class="icon accent tip-r" onclick="startAdd()" ${loading ? "disabled" : ""} data-tip="Add secret">${I.plus}</button>
+    </div>
+    ${barsHtml()}
+    <div class="content">${
+      error ? `<pre class="err">${esc(error)}</pre>`
+      : loading ? `<div class="empty"><span class="spin"></span> Loading secrets…</div>`
+      : !rows.length && !state.adding ? `<div class="empty"><h2>${state.search ? "No matching keys" : "No secrets yet"}</h2>${state.search ? "" : `<button class="primary" onclick="startAdd()">Add secret</button>`}</div>`
+      : `<table class="grid"><tbody>
+        ${state.adding ? `<tr class="editrow"><td colspan="3"><form id="addform" class="editor">
+          <input id="newkey" placeholder="NEW_KEY_NAME — ↵ add · esc cancel" spellcheck="false" autocomplete="off">
+          <button class="icon" type="submit" data-tip="Add">${I.check}</button><button class="icon tip-r" type="button" id="addcancel" data-tip="Cancel">${I.x}</button></form></td></tr>` : ""}
+        ${rows.map((s) => `<tr draggable="true" data-key="${esc(s.key)}">
+          <td class="key" title="Click to copy the name · drag onto a project to move (⌥ copy)">${esc(s.key)}${s.placeholder ? `<span class="badge">no value yet</span>` : ""}</td>
+          <td class="tags">${ENVS.map((e) => tagHtml(s, e)).join("")}</td>
+          <td class="act">${state.askRow === s.key
+            ? `<span class="confirm">Delete?</span><button class="icon danger" data-rowyes data-tip="Yes, delete everywhere">${I.check}</button><button class="icon tip-r" data-rowno data-tip="Keep it">${I.x}</button>`
+            : `<button class="icon rowtrash tip-r" data-delrow data-tip="Delete in all environments">${I.trash}</button>`}</td></tr>
+          ${state.edit && state.edit.key === s.key ? editorRow(s) : ""}`).join("")}
+      </tbody></table>
+      <div class="tip">Click a name to copy it · click a tag to set or change its value (values are never shown) · drag a name onto a project or a tag onto another tag to move it, hold ⌥ to copy.</div>`
+    }</div>`;
+  bindMain();
+  const c = $("#main .content");
+  if (c) c.scrollTop = scrollY;
+}
+
+function bindMain() {
+  const m = $("#main");
+  const s = $("#search");
+  s.oninput = () => { state.search = s.value; const pos = s.selectionStart; renderMain(); const n = $("#search"); n.focus(); n.setSelectionRange(pos, pos); };
+
+  m.querySelectorAll("tr[data-key]").forEach((tr) => {
+    const key = tr.dataset.key;
+    tr.querySelector("td.key").onclick = () => { copyText(key); toast("Copied name: " + key); };
+    tr.ondragstart = (e) => {
+      if (e.target.closest?.("input,button")) return e.preventDefault();
+      const tag = e.target.closest?.(".tag.on");
+      state.drag = tag ? { type: "cell", project: state.project, key, env: tag.dataset.tag }
+                       : { type: "key", project: state.project, key };
+      e.dataTransfer.effectAllowed = "copyMove"; e.dataTransfer.setData("text/plain", key);
+      (tag || tr).classList.add("dragging");
+    };
+    tr.ondragend = () => { tr.querySelectorAll(".dragging").forEach((x) => x.classList.remove("dragging")); tr.classList.remove("dragging"); state.drag = null; };
+    tr.querySelectorAll(".tag").forEach((tag) => {
+      const env = tag.dataset.tag;
+      tag.onclick = () => startEdit(key, env);
+      // Drop target: a value dragged from another environment of this key.
+      tag.ondragover = (e) => {
+        const g = state.drag;
+        if (g?.type !== "cell" || g.key !== key || g.env === env) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = e.altKey ? "copy" : "move"; tag.classList.add("dropok");
+      };
+      tag.ondragleave = () => tag.classList.remove("dropok");
+      tag.ondrop = (e) => {
+        e.preventDefault(); tag.classList.remove("dropok");
+        const g = state.drag; state.drag = null;
+        if (g?.type === "cell" && g.key === key && g.env !== env) runTransfer({ key, to: state.project, fromEnv: g.env, toEnv: env, move: !e.altKey });
+      };
+    });
+    const dr = tr.querySelector("[data-delrow]");
+    if (dr) dr.onclick = () => { state.askRow = key; renderMain(); };
+    const ry = tr.querySelector("[data-rowyes]");
+    if (ry) { ry.onclick = () => deleteRow(key); tr.querySelector("[data-rowno]").onclick = () => { state.askRow = null; renderMain(); }; }
+  });
+
+  const ed = m.querySelector(".editrow [data-edit]");
+  if (ed) {
+    const { key, env } = state.edit;
+    const row = ed.closest(".editor");
+    const cancel = () => { state.edit = null; state.ask = null; renderMain(); };
+    ed.oninput = () => { state.editValue = ed.value; };
+    ed.onkeydown = (e) => {
+      if (e.key === "Enter") { e.preventDefault(); saveCell(key, env, ed.value); }
+      if (e.key === "Escape") cancel();
+    };
+    row.querySelector("[data-save]").onclick = () => saveCell(key, env, ed.value);
+    row.querySelector("[data-cancel]").onclick = cancel;
+    row.querySelector("[data-unset]")?.addEventListener("click", () => { state.ask = { key, env }; renderMain(); });
+    row.querySelector("[data-yes]")?.addEventListener("click", () => { state.edit = null; unsetCell(key, env); });
+    row.querySelector("[data-no]")?.addEventListener("click", () => { state.ask = null; renderMain(); });
+    if (!state.ask) { ed.focus({ preventScroll: true }); ed.setSelectionRange(ed.value.length, ed.value.length); }
+  }
+
+  const af = $("#addform");
+  if (af) {
+    const k = $("#newkey");
+    if (document.activeElement?.id !== "pwin") k.focus({ preventScroll: true });
+    k.onkeydown = (e) => { if (e.key === "Escape") { state.adding = false; renderMain(); } };
+    $("#addcancel").onclick = () => { state.adding = false; renderMain(); };
+    af.onsubmit = (e) => { e.preventDefault(); addKey(k.value.trim()); };
+  }
+  bindBars();
+}
+
+function barsHtml() {
+  return (state.busyMsg ? `<div id="pwbar"><span class="spin"></span> ${esc(state.busyMsg)}</div>` : "")
+    + (state.pwAsk ? `<form id="pwbar"><span>This change needs your AgentSecrets password</span>
+      <input type="password" id="pwin" placeholder="Password" autocomplete="off"><button class="primary" type="submit">Continue</button><button type="button" id="pwcancel">Cancel</button></form>` : "");
+}
+function bindBars() {
+  const pb = $("form#pwbar");
+  if (!pb) return;
+  const pin = $("#pwin"); pin.focus();
+  pb.onsubmit = (e) => { e.preventDefault(); if (!pin.value) return; const r = state.pwAsk; state.pwAsk = null; state.pw = pin.value; renderMain(); r(pin.value); };
+  $("#pwcancel").onclick = () => { const r = state.pwAsk; state.pwAsk = null; renderMain(); r(null); };
+}
+
+// ---------- password (asked inline, kept in memory until the app closes) ----------
+function getPassword() {
+  if (state.pw) return Promise.resolve(state.pw);
+  return new Promise((resolve) => { if (state.pwAsk) state.pwAsk(null); state.pwAsk = resolve; renderMain(); });
+}
+async function withPw(env, fn) {
+  const pw = env === "production" ? await getPassword() : "";
+  if (env === "production" && !pw) return false;
+  try { await fn(pw); return true; }
+  catch (e) { if (/incorrect password/i.test(e.message)) state.pw = null; throw e; }
+}
+function fail(e) { toast("⚠️ " + e.message.split("\n").filter(Boolean).slice(0, 3).join(" — ")); }
+const find = (key) => state.secrets.find((s) => s.key === key);
+
+// ---------- secret actions (all inline, optimistic) ----------
+// The grid changes immediately; the CLI call runs in the background. If it fails,
+// the change is rolled back and the error is shown.
+function startEdit(key, env) { state.edit = { key, env }; state.editValue = ""; state.ask = null; renderMain(); }
+function startAdd() { state.adding = true; state.search = ""; renderMain(); }
+
+const listOf = (p) => (state.cache[p] ||= (p === state.project ? state.secrets : []));
+const findIn = (p, key) => listOf(p).find((s) => s.key === key);
+const snapshotRow = (s) => s && { ...s };
+function rerender(project) { if (state.project === project) { state.secrets = listOf(project); renderMain(); } }
+
+async function optimistic({ projects, cells = [], apply, run, done, failMsg }) {
+  // Remember the touched rows so they can be put back.
+  const before = projects.map((p) => [p, listOf(p).map(snapshotRow)]);
+  projects.forEach((p) => { state.inflight[p] = (state.inflight[p] || 0) + 1; });
+  cells.forEach((c) => state.saving.add(c));
+  apply(); projects.forEach(rerender);
+  try { await run(); if (done) toast(done); }
+  catch (e) {
+    before.forEach(([p, rows]) => { state.cache[p] = rows; if (state.project === p) state.secrets = rows; });
+    if (/incorrect password/i.test(e.message)) state.pw = null;
+    fail(e);
+  } finally {
+    cells.forEach((c) => state.saving.delete(c));
+    projects.forEach((p) => { state.inflight[p]--; rerender(p); });
+  }
+}
+async function pwFor(...envs) {
+  if (!envs.includes("production")) return "";
+  return await getPassword();
+}
+function upsert(project, key, patch) {
+  const list = listOf(project);
+  let row = list.find((s) => s.key === key);
+  if (!row) { row = { key, development: false, staging: false, production: false }; list.push(row); list.sort((a, b) => a.key.localeCompare(b.key)); }
+  Object.assign(row, patch);
+  return row;
+}
+
+async function saveCell(key, env, value) {
+  if (!value) return toast("Type a value, or use ✕ to unset it.");
+  const project = state.project;
+  state.edit = null;
+  const password = await pwFor(env);
+  if (env === "production" && !password) return renderMain();
+  optimistic({ projects: [project], cells: [cellId(key, env)],
+    apply: () => upsert(project, key, { [env]: true, placeholder: false }),
+    run: () => act("secret.set", { project, key, value, env, password }) });
+}
+async function unsetCell(key, env) {
+  const project = state.project;
+  state.ask = null;
+  const password = await pwFor(env);
+  if (env === "production" && !password) return renderMain();
+  const row = findIn(project, key);
+  const last = ENVS.filter((e) => row[e]).length === 1;
+  optimistic({ projects: [project], cells: [cellId(key, env)],
+    apply: () => upsert(project, key, { [env]: false, ...(last ? { placeholder: true } : {}) }),
+    run: async () => {
+      await act("secret.delete", { project, key, env, password });
+      if (last) await act("secret.addkey", { project, key });  // keep the key listed, unset
+    } });
+}
+async function deleteRow(key) {
+  const project = state.project, row = findIn(project, key);
+  state.askRow = null;
+  const envs = ENVS.filter((e) => row[e]);
+  const password = await pwFor(...envs);
+  if (envs.includes("production") && !password) return renderMain();
+  optimistic({ projects: [project],
+    apply: () => { state.cache[project] = listOf(project).filter((s) => s.key !== key); state.secrets = state.cache[project]; },
+    run: async () => {
+      for (const env of envs) await act("secret.delete", { project, key, env, password });
+      await act("secret.unsetkey", { project, key });
+    } });
+}
+async function addKey(key) {
+  if (!key) return;
+  state.adding = false;
+  if (findIn(state.project, key)) return startEdit(key, "development");
+  const project = state.project;
+  upsert(project, key, { placeholder: true });
+  startEdit(key, "development");
+  act("secret.addkey", { project, key }).catch((e) => { state.cache[project] = listOf(project).filter((s) => s.key !== key); rerender(project); fail(e); });
+}
+// Drag = move, ⌥-drag = copy. Either a whole key onto another project (each
+// environment keeps its value), or one value onto another environment.
+async function runTransfer({ key, to, move, fromEnv = null, toEnv = null }) {
+  const project = state.project, row = { ...findIn(project, key) };
+  if (!fromEnv && row.placeholder) {
+    return optimistic({ projects: [project, to],
+      apply: () => { upsert(to, key, { placeholder: true }); if (move) state.cache[project] = listOf(project).filter((s) => s.key !== key); },
+      run: async () => { await act("secret.copykeys", { from: project, to, keys: [key] }); if (move) await act("secret.unsetkey", { project, key }); },
+      done: `${move ? "Moved" : "Copied"} ${key} to ${to}` });
+  }
+  const envs = fromEnv ? [fromEnv, toEnv] : ENVS.filter((e) => row[e]);
+  const password = await pwFor(...envs);
+  if (envs.includes("production") && !password) return;
+  const present = { [key]: Object.fromEntries(ENVS.map((e) => [e, !!row[e]])) };
+  optimistic({
+    projects: project === to ? [project] : [project, to],
+    cells: fromEnv ? [cellId(key, toEnv)] : [],
+    apply: () => {
+      if (fromEnv) { upsert(to, key, { [toEnv]: true, placeholder: false }); if (move) upsert(project, key, { [fromEnv]: false }); }
+      else {
+        upsert(to, key, { ...Object.fromEntries(ENVS.filter((e) => row[e]).map((e) => [e, true])), placeholder: false });
+        if (move) state.cache[project] = listOf(project).filter((s) => s.key !== key);
+      }
+    },
+    run: () => act("secret.transfer", { from: project, to, keys: [key], move, fromEnv, toEnv, password, present }),
+    done: fromEnv ? `${move ? "Moved" : "Copied"} ${key}: ${fromEnv} → ${toEnv}` : `${move ? "Moved" : "Copied"} ${key} to ${to}`,
+  });
+}
+
+// ---------- project / workspace / environment actions ----------
+// ---------- allowed domains (workspace allowlist) ----------
+async function openAllowlist() {
+  state.view = "allowlist"; state.allowAsk = null; renderProjects();
+  state.allowErr = null; renderAllowlist();  // last known list stays visible while refreshing
+  try { state.allow = await api("/api/allowlist"); } catch (e) { state.allowErr = e.message; }
+  if (state.view === "allowlist") renderAllowlist();
+}
+function renderAllowlist() {
+  const ws = $("#workspace").selectedOptions[0]?.textContent || "this workspace";
+  const a = state.allow;
+  $("#main").innerHTML = `
+    <header><h1>Allowed domains<span class="sub">${esc(ws)}</span></h1><button class="icon tip-r" onclick="openAllowlist()" data-tip="Refresh">${I.refresh}</button></header>
+    <div class="toolbar"><form id="allowform" style="display:flex;gap:8px;flex:1">
+      <input id="newdomain" style="flex:1" value="${esc(state.allowInput)}" placeholder="api.example.com, other.dev — the proxy only injects credentials into these" spellcheck="false" autocomplete="off">
+      <button class="icon accent tip-r" type="submit" data-tip="Add domains">${I.plus}</button></form></div>
+    ${barsHtml()}
+    <div class="content">${
+      state.allowErr ? `<pre class="err">${esc(state.allowErr)}</pre>`
+      : !a ? `<div class="empty"><span class="spin"></span> Loading…</div>`
+      : `${a.domains.length ? `<table><thead><tr><th>Domain</th><th>Added by</th><th></th></tr></thead><tbody>${a.domains.map((d) => `
+          <tr data-domain="${esc(d.domain)}"><td class="key">${esc(d.domain)}</td><td style="color:var(--muted);font-size:12px">${esc(d.addedBy)}</td>
+          <td class="act">${state.allowAsk === d.domain
+            ? `<span class="confirm">Remove?</span><button class="icon danger" data-yes data-tip="Yes, remove">${I.check}</button><button class="icon tip-r" data-no data-tip="Keep it">${I.x}</button>`
+            : `<button class="icon rowtrash tip-r" data-rm data-tip="Remove from allowlist">${I.trash}</button>`}</td></tr>`).join("")}</tbody></table>`
+          : `<div class="empty"><h2>No allowed domains</h2>Until you add one, the proxy won't send credentials anywhere.</div>`}
+        ${a.logs.length ? `<h3 class="label" style="padding:22px 2px 8px">Recent activity</h3>
+          <table><thead><tr><th>Time</th><th>Domain</th><th>Action</th><th>User</th></tr></thead><tbody>${a.logs.slice(0, 30).map((l) => `
+            <tr><td style="color:var(--muted);font-size:12px">${esc(l.time)}</td><td class="key">${esc(l.domain)}</td>
+            <td><span class="act-${esc(l.action.toLowerCase())}">${esc(l.action)}</span></td><td style="color:var(--muted);font-size:12px">${esc(l.user)}</td></tr>`).join("")}</tbody></table>` : ""}`
+    }</div>`;
+  const f = $("#allowform"), inp = $("#newdomain");
+  if (!state.pwAsk) inp.focus();
+  inp.oninput = () => { state.allowInput = inp.value; };
+  f.onsubmit = (e) => { e.preventDefault(); addDomains(inp.value); };
+  document.querySelectorAll("tr[data-domain]").forEach((tr) => {
+    const d = tr.dataset.domain;
+    tr.querySelector("[data-rm]")?.addEventListener("click", () => { state.allowAsk = d; renderAllowlist(); });
+    tr.querySelector("[data-yes]")?.addEventListener("click", () => removeDomain(d));
+    tr.querySelector("[data-no]")?.addEventListener("click", () => { state.allowAsk = null; renderAllowlist(); });
+  });
+  bindBars();
+}
+async function allowAction(msg, name, body) {
+  const password = await getPassword();
+  if (!password) return false;
+  state.busyMsg = msg; renderAllowlist();
+  try { await act(name, { ...body, password }); return true; }
+  catch (e) { if (/incorrect password/i.test(e.message)) state.pw = null; fail(e); return false; }
+  finally { state.busyMsg = null; }
+}
+async function addDomains(text) {
+  const domains = text.split(/[\s,]+/).map((d) => d.trim()).filter(Boolean);
+  if (!domains.length) return;
+  if (await allowAction(`Adding ${domains.join(", ")}…`, "allowlist.add", { domains })) { state.allowInput = ""; toast("Added " + domains.join(", ")); return openAllowlist(); }
+  renderAllowlist();
+}
+async function removeDomain(domain) {
+  state.allowAsk = null;
+  if (await allowAction(`Removing ${domain}…`, "allowlist.remove", { domain })) { toast("Removed " + domain); return openAllowlist(); }
+  renderAllowlist();
+}
+
+async function switchWorkspace(name) {
+  try { await act("workspace.switch", { name }); toast("Switched to " + name); state.project = null; await loadProjects(); state.view === "allowlist" ? openAllowlist() : loadSecrets(); }
+  catch (e) { fail(e); loadWorkspaces(); }
+}
+async function newWorkspace() {
+  const r = await dialog({ title: "New workspace", fields: [{ name: "name", label: "Name" }], ok: "Create",
+    run: (v) => { if (!v.name.trim()) throw new Error("Name is required"); return act("workspace.create", { name: v.name.trim() }); } });
+  if (r) { toast("Workspace created"); refreshAll(); }
+}
+async function newProject() {
+  const r = await dialog({ title: "New project", fields: [{ name: "name", label: "Name", placeholder: "my-app" }, { name: "description", label: "Description (optional)" }], ok: "Create",
+    run: async (v) => { if (!v.name.trim()) throw new Error("Name is required"); await act("project.create", { name: v.name.trim(), description: v.description }); return v; } });
+  if (r) { toast("Project created"); state.project = r.name.trim(); await loadProjects(); loadSecrets(); }
+}
+async function editProject() {
+  const p = state.projects.find((x) => x.name === state.project);
+  const r = await dialog({ title: "Edit project", text: "Leave a field blank to keep it unchanged.",
+    fields: [{ name: "newName", label: "Name", value: p.name }, { name: "description", label: "Description", value: p.description }], ok: "Save",
+    run: async (v) => {
+      const body = { name: p.name, newName: v.newName.trim() === p.name ? "" : v.newName.trim(), description: v.description === p.description ? "" : v.description };
+      if (!body.newName && !body.description) return v;
+      await act("project.update", body); return v;
+    } });
+  if (r) { if (r.newName.trim()) state.project = r.newName.trim(); toast("Project saved"); await loadProjects(); renderMain(); }
+}
+async function deleteProject() {
+  const name = state.project;
+  const r = await dialog({ title: `Delete “${name}”?`, text: "This deletes the project and all of its secrets in every environment. It cannot be undone.",
+    fields: [{ name: "confirm", label: `Type ${name} to confirm` }, { name: "password", label: "AgentSecrets password", type: "password" }], ok: "Delete project", danger: true,
+    run: (v) => { if (v.confirm !== name) throw new Error("The name doesn't match."); return act("project.delete", { name, password: v.password }); } });
+  if (r) { toast("Project deleted"); state.project = null; await loadProjects(); loadSecrets(); }
+}
+async function copyEnv() {
+  const r = await dialog({ title: "Copy environment", text: "Copies every key and value. Keys that already exist in the target are overwritten.",
+    fields: [{ name: "from", label: "From", type: "select", value: "development", options: ENVS }, { name: "to", label: "To", type: "select", value: "staging", options: ENVS }], ok: "Copy",
+    run: (v) => { if (v.from === v.to) throw new Error("Pick two different environments."); return act("env.copy", { project: state.project, from: v.from, to: v.to }); } });
+  if (r) { toast(`Copied ${r.from} → ${r.to}`); loadSecrets(); }
+}
+async function cleanEnv() {
+  const r = await dialog({ title: "Clear environment", text: "Deletes every secret in the chosen environment. This cannot be undone.",
+    fields: [{ name: "env", label: "Environment", type: "select", value: "development", options: ENVS }, { name: "confirm", label: "Type the environment name to confirm" }, PW_FIELD], ok: "Delete all", danger: true,
+    run: (v) => { if (v.confirm !== v.env) throw new Error("Doesn't match."); return act("env.clean", { project: state.project, env: v.env, password: v.password }); } });
+  if (r) { toast("Cleared " + r.env); loadSecrets(); }
+}
+async function importEnv() {
+  const r = await dialog({ title: "Import .env", text: "Paste KEY=VALUE lines.",
+    fields: [{ name: "text", label: ".env contents", type: "textarea", placeholder: "API_KEY=abc123\nDB_URL=postgres://…" },
+      { name: "env", label: "Save to", type: "select", value: "development", options: [...ENVS, { value: "all", label: "All three environments" }] }, PW_FIELD], ok: "Import",
+    run: async (v) => {
+      const pairs = v.text.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#") && l.includes("="))
+        .map((l) => { l = l.replace(/^export\s+/, ""); const i = l.indexOf("="); let val = l.slice(i + 1).trim();
+          if (val.length > 1 && (val[0] === '"' || val[0] === "'") && val.endsWith(val[0])) val = val.slice(1, -1);
+          return [l.slice(0, i).trim(), val]; });
+      if (!pairs.length) throw new Error("No KEY=VALUE lines found.");
+      await act("secret.set", { project: state.project, pairs: Object.fromEntries(pairs), env: v.env, password: v.password });
+      return pairs;
+    } });
+  if (r) { toast(`Imported ${r.length} secrets`); loadSecrets(); }
+}
+const native = window.webkit?.messageHandlers?.native;
+function copyText(text) {
+  if (native) return native.postMessage({ action: "copy", text });
+  navigator.clipboard?.writeText(text).catch(() => {
+    const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove();
+  });
+}
+async function quit() {
+  if (!confirm("Stop AgentSecrets Manager?")) return;
+  if (native) return native.postMessage({ action: "quit" });
+  await api("/api/quit", {}).catch(() => {});
+  document.body.innerHTML = `<div class="empty" style="margin:auto"><h2>AgentSecrets Manager stopped</h2>You can close this tab.</div>`;
+}
+
+// Static sidebar icons.
+$("#btn-newws").innerHTML = I.plus; $("#btn-newproj").innerHTML = I.plus;
+$("#btn-refresh").innerHTML = I.refresh; $("#btn-quit").innerHTML = I.power; $("#ic-globe").innerHTML = I.globe;
+refreshAll();
+</script>
+</body>
+</html>
