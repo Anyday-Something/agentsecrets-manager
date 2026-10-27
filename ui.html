@@ -76,7 +76,10 @@ td.key:hover { color: var(--accent-ink); }
 tr[draggable=true] td.key::before { content: "⠿"; color: var(--muted); margin-right: 8px; opacity: .45; cursor: grab; }
 tr.dragging { opacity: .4; }
 td.tags { white-space: nowrap; width: 1%; padding-right: 4px; }
-td.act { text-align: right; white-space: nowrap; width: 1%; padding-left: 4px; }
+td.act { text-align: right; white-space: nowrap; width: 1%; padding-left: 4px; position: relative; }
+/* Overlays the tags instead of widening the column, so nothing shifts. */
+.rowconfirm { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 2px;
+  padding: 0 2px 0 8px; border-radius: 8px; background: var(--panel); box-shadow: 0 0 0 1px var(--line), 0 2px 8px rgba(0,0,0,.12); z-index: 2; }
 .tag { display: inline-block; font: 600 10px/1 -apple-system, sans-serif; letter-spacing: .04em; padding: 4px 7px; border-radius: 10px;
   margin-left: 4px; cursor: pointer; user-select: none; border: 1px solid transparent; }
 .tag.on { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
@@ -424,7 +427,7 @@ function renderMain(loading = false, error = null) {
           <td class="key" title="Click to copy the name · drag onto a project to move (⌥ copy)">${esc(s.key)}${s.placeholder ? `<span class="badge">no value yet</span>` : ""}</td>
           <td class="tags">${ENVS.map((e) => tagHtml(s, e)).join("")}</td>
           <td class="act">${state.askRow === s.key
-            ? `<span class="confirm">Delete?</span><button class="icon danger" data-rowyes data-tip="Yes, delete everywhere">${I.check}</button><button class="icon tip-r" data-rowno data-tip="Keep it">${I.x}</button>`
+            ? `<button class="icon" style="visibility:hidden" tabindex="-1" aria-hidden="true">${I.trash}</button><span class="rowconfirm"><span class="confirm">Delete?</span><button class="icon danger" data-rowyes data-tip="Yes, delete everywhere">${I.check}</button><button class="icon tip-r" data-rowno data-tip="Keep it">${I.x}</button></span>`
             : `<button class="icon rowtrash tip-r" data-delrow data-tip="Delete in all environments">${I.trash}</button>`}</td></tr>
           ${state.edit && state.edit.key === s.key ? editorRow(s) : ""}`).join("")}
       </tbody></table>
