@@ -11,6 +11,7 @@ Only the Python standard library is used. Run:  python3 agentsecrets_gui.py
 import contextlib
 import errno
 import fcntl
+import hmac
 import json
 import os
 import pty
@@ -173,12 +174,39 @@ def table_rows(out):
 
 # ---------- project working directories ----------
 
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def no_control_chars(text, what):
+    """Text typed into a CLI prompt must not carry Enter/Tab etc. that would answer other prompts."""
+    if CONTROL_CHARS.search(text or ""):
+        raise CLIError("%s can't contain control characters." % what)
+    return text
+
+
+def valid_name(name, what="Name"):
+    """A workspace or project name passed to the CLI as an argument, never as a flag."""
+    if not isinstance(name, str) or not name.strip():
+        raise CLIError("%s is required." % what)
+    name = name.strip()
+    if name.startswith("-") or CONTROL_CHARS.search(name):
+        raise CLIError("Invalid %s %r: don't start with '-' or use control characters." % (what.lower(), name))
+    return name
+
+
+def valid_env(env):
+    if env not in ENVS:
+        raise CLIError("Unknown environment: %s" % env)
+    return env
+
+
 def safe_name(name):
     return re.sub(r"[^A-Za-z0-9._-]", "_", name) or "_"
 
 
 def project_dir(name, relink=False):
     """A private folder bound to the project, so the CLI's cwd-based commands work."""
+    name = valid_name(name, "Project")
     d = os.path.join(PROJECTS_DIR, safe_name(name))
     os.makedirs(d, mode=0o700, exist_ok=True)
     pj = os.path.join(d, ".agentsecrets", "project.json")
@@ -239,6 +267,7 @@ def remove_project_dir(name):
 
 def with_password(answers, password):
     if password:
+        no_control_chars(password, "Password")
         answers = list(answers) + [(PASSWORD_PROMPT, password + "\r")]
     return answers
 
@@ -436,7 +465,7 @@ def transfer(src, dst, keys, password, move=True, src_env=None, dst_env=None, pr
 
 
 def valid_key(key):
-    if not re.match(r"^[A-Za-z_][A-Za-z0-9_.-]*$", key):
+    if not isinstance(key, str) or not re.match(r"^[A-Za-z_][A-Za-z0-9_.-]*$", key):
         raise CLIError("Invalid key %r: use letters, digits, _ . - and don't start with a digit." % key)
     return key
 
@@ -448,9 +477,9 @@ def handle(action, p):
     pw = p.get("password") or ""
 
     if action == "workspace.switch":
-        return check(*run_cli(["workspace", "switch", p["name"]]))
+        return check(*run_cli(["workspace", "switch", valid_name(p["name"], "Workspace")]))
     if action == "workspace.create":
-        return check(*run_cli(["workspace", "create", p["name"]]))
+        return check(*run_cli(["workspace", "create", valid_name(p["name"], "Workspace")]))
 
     if action == "allowlist.add":
         domains = [valid_domain(d) for d in p["domains"] if d.strip()]
@@ -463,35 +492,40 @@ def handle(action, p):
                               answers=with_password([], pw)))
 
     if action == "project.create":
-        name = p["name"].strip()
+        name = valid_name(p["name"], "Project")
+        description = no_control_chars(p.get("description") or "", "Description")
         d = os.path.join(PROJECTS_DIR, safe_name(name))
         os.makedirs(d, mode=0o700, exist_ok=True)
         with preserve_selected_project():
             seed_project_dir(d)
             code, out = run_cli(["project", "create", name], cwd=d,
-                                answers=[("Description", (p.get("description") or "") + "\r")])
+                                answers=[("Description", description + "\r")])
         out = check(code, out)
         if "created" not in out.lower():
             raise CLIError(out or "Project was not created.")
         return out
     if action == "project.update":
-        code, out = run_cli(["project", "update", p["name"]], answers=[
-            ("New Project Name", (p.get("newName") or "") + "\t"),
-            ("New Description", (p.get("description") or "") + "\r"),
+        name = valid_name(p["name"], "Project")
+        new_name = valid_name(p["newName"], "Project") if (p.get("newName") or "").strip() else ""
+        description = no_control_chars(p.get("description") or "", "Description")
+        code, out = run_cli(["project", "update", name], answers=[
+            ("New Project Name", new_name + "\t"),
+            ("New Description", description + "\r"),
         ])
         out = check(code, out)
-        if p.get("newName") and p["newName"] != p["name"]:
-            remove_project_dir(p["name"])
-            rename_pending(p["name"], p["newName"])
+        if new_name and new_name != name:
+            remove_project_dir(name)
+            rename_pending(name, new_name)
         return out
     if action == "project.delete":
-        code, out = run_cli(["project", "delete", p["name"]],
+        name = valid_name(p["name"], "Project")
+        code, out = run_cli(["project", "delete", name],
                             answers=with_password([("cannot be undone", "y")], pw))
         out = check(code, out)
         if "deleted" not in out.lower():
             raise CLIError(out or "Project was not deleted.")
-        remove_project_dir(p["name"])
-        remove_pending(p["name"], load_pending().get(p["name"], []))
+        remove_project_dir(name)
+        remove_pending(name, load_pending().get(name, []))
         return out
 
     if action == "secret.set":
@@ -510,25 +544,30 @@ def handle(action, p):
         remove_pending(p["project"], list(pairs))
         return out
     if action == "secret.delete":
-        return delete_secret(project_dir(p["project"]), p["key"], env, pw)
+        key = valid_key(p["key"])
+        return delete_secret(project_dir(p["project"]), key, env, pw)
     if action == "secret.copykeys":
-        if p["from"] == p["to"]:
+        src, dst = valid_name(p["from"], "Project"), valid_name(p["to"], "Project")
+        if src == dst:
             raise CLIError("Drop it on a different project.")
-        add_pending(p["to"], [valid_key(k) for k in p["keys"]])
+        add_pending(dst, [valid_key(k) for k in p["keys"]])
         return "ok"
     if action == "secret.transfer":
-        return transfer(p["from"], p["to"], [valid_key(k) for k in p["keys"]], pw, move=bool(p.get("move")),
-                        src_env=p.get("fromEnv"), dst_env=p.get("toEnv"), present=p.get("present"))
+        return transfer(valid_name(p["from"], "Project"), valid_name(p["to"], "Project"),
+                        [valid_key(k) for k in p["keys"]], pw, move=bool(p.get("move")),
+                        src_env=p.get("fromEnv") and valid_env(p["fromEnv"]),
+                        dst_env=p.get("toEnv") and valid_env(p["toEnv"]), present=p.get("present"))
     if action == "secret.addkey":
-        add_pending(p["project"], [valid_key(p["key"].strip())])
+        add_pending(valid_name(p["project"], "Project"), [valid_key(p["key"].strip())])
         return "ok"
     if action == "secret.unsetkey":
-        remove_pending(p["project"], [p["key"]])
+        remove_pending(valid_name(p["project"], "Project"), [valid_key(p["key"])])
         return "ok"
 
     if action == "env.copy":
+        src, dst = valid_env(p["from"]), valid_env(p["to"])
         d = project_dir(p["project"])
-        return check(*run_cli(["environment", "copy", p["from"], p["to"]], cwd=d,
+        return check(*run_cli(["environment", "copy", src, dst], cwd=d,
                               answers=[(r"Continue\? \(y/n\)", "y\r")]), ok_markers=["Nothing to copy"])
     if action == "env.clean":
         d = project_dir(p["project"])
@@ -575,12 +614,20 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _host_ok(self):
+        # Block DNS rebinding and other sites calling this server.
+        return self.headers.get("Host", "") in ("127.0.0.1:%d" % PORT, "localhost:%d" % PORT)
+
+    def _token_ok(self):
+        # Other local users and processes can reach 127.0.0.1 too, so every API call needs the
+        # per-run token. It is only handed out in the 0600 url file and the URL fragment the
+        # app opens, never by the server.
+        return hmac.compare_digest(self.headers.get("X-Token", "").encode(), TOKEN.encode())
+
     def _allowed(self):
-        # Block DNS-rebinding and other sites calling this server.
-        host = self.headers.get("Host", "")
-        if host not in ("127.0.0.1:%d" % PORT, "localhost:%d" % PORT):
+        if not self._host_ok():
             return False
-        return self.path.startswith("/?") or self.path == "/" or self.headers.get("X-Token") == TOKEN
+        return urlparse(self.path).path == "/" or self._token_ok()
 
     def do_GET(self):
         if not self._allowed():
@@ -590,8 +637,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if url.path == "/":
                 with open(UI_FILE, "rb") as f:
-                    html = f.read().replace(b"__TOKEN__", TOKEN.encode())
-                return self._send(200, html, "text/html; charset=utf-8")
+                    return self._send(200, f.read(), "text/html; charset=utf-8")
             if url.path == "/api/snapshot":
                 with SNAPSHOT_LOCK:
                     return self._send(200, _read_json(SNAPSHOT_FILE))
@@ -612,7 +658,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(500, {"error": "%s: %s" % (type(e).__name__, e)})
 
     def do_POST(self):
-        if not self._allowed() or self.headers.get("X-Token") != TOKEN:
+        if not self._host_ok() or not self._token_ok():
             return self._send(403, {"error": "forbidden"})
         url = urlparse(self.path)
         try:
@@ -645,6 +691,7 @@ def prelink_projects():
 
 def main():
     os.makedirs(PROJECTS_DIR, mode=0o700, exist_ok=True)
+    os.chmod(DATA_DIR, 0o700)
     threading.Thread(target=prelink_projects, daemon=True).start()
     url_file = os.path.join(DATA_DIR, "url")
     try:
@@ -657,11 +704,14 @@ def main():
             sys.exit(0)
         print("Port %d is busy. Set AGENTSECRETS_GUI_PORT to use another port." % PORT)
         sys.exit(1)
-    url = "http://127.0.0.1:%d/" % PORT
+    base = "http://127.0.0.1:%d/" % PORT
+    # The token rides in the fragment, which browsers never send to the server.
+    url = base + "#t=" + TOKEN
     fd = os.open(url_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
     os.write(fd, url.encode())
     os.close(fd)
-    print("AgentSecrets Manager running at", url)
+    print("AgentSecrets Manager running at", url if sys.stdout.isatty() else base)
     print("Press Ctrl+C to stop.")
     if "--no-browser" not in sys.argv:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
