@@ -3,14 +3,16 @@
 import AppKit
 import WebKit
 
-let port = ProcessInfo.processInfo.environment["AGENTSECRETS_GUI_PORT"] ?? "8787"
-let appURL = URL(string: "http://127.0.0.1:\(port)/")!
+// The server writes its URL, with the per-run token in the fragment, to this 0600 file.
+let urlFile = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/AgentSecretsManager/url")
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKScriptMessageHandler {
     var statusItem: NSStatusItem!
     let popover = NSPopover()
     var webView: WKWebView!
     var server: Process?
+    var appURL: URL?
 
     func applicationDidFinishLaunching(_ note: Notification) {
         installEditMenu()
@@ -66,21 +68,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         server = p
     }
 
-    // The server takes a moment to start; retry until it answers.
+    // The server takes a moment to start; retry until it answers to the token in its url file
+    // (a file left over from an earlier run has a stale token and gets 403).
     func loadWhenReady(attempts: Int) {
-        URLSession.shared.dataTask(with: appURL) { _, response, _ in
+        guard let text = try? String(contentsOf: urlFile, encoding: .utf8),
+              let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let fragment = url.fragment, fragment.hasPrefix("t="),
+              let probe = URL(string: "/api/snapshot", relativeTo: url) else {
+            return retryLoad(attempts: attempts)
+        }
+        var request = URLRequest(url: probe)
+        request.setValue(String(fragment.dropFirst(2)), forHTTPHeaderField: "X-Token")
+        URLSession.shared.dataTask(with: request) { _, response, _ in
             DispatchQueue.main.async {
                 if (response as? HTTPURLResponse)?.statusCode == 200 {
-                    self.webView.load(URLRequest(url: appURL))
-                } else if attempts > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.loadWhenReady(attempts: attempts - 1) }
+                    self.appURL = url
+                    self.webView.load(URLRequest(url: url))
                 } else {
-                    self.webView.loadHTMLString(
-                        "<body style='font:14px -apple-system;padding:40px;text-align:center'>Couldn't start the AgentSecrets server.<br>See ~/Library/Logs/AgentSecretsManager.log</body>",
-                        baseURL: nil)
+                    self.retryLoad(attempts: attempts)
                 }
             }
         }.resume()
+    }
+
+    func retryLoad(attempts: Int) {
+        if attempts > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.loadWhenReady(attempts: attempts - 1) }
+        } else {
+            webView.loadHTMLString(
+                "<body style='font:14px -apple-system;padding:40px;text-align:center'>Couldn't start the AgentSecrets server.<br>See ~/Library/Logs/AgentSecretsManager.log</body>",
+                baseURL: nil)
+        }
     }
 
     // MARK: status item
@@ -106,8 +124,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKScript
         }
     }
 
-    @objc func openInBrowser() { NSWorkspace.shared.open(appURL) }
-    @objc func reload() { webView.load(URLRequest(url: appURL)) }
+    @objc func openInBrowser() { if let url = appURL { NSWorkspace.shared.open(url) } }
+    @objc func reload() { if appURL == nil { loadWhenReady(attempts: 40) } else { webView.reload() } }
     @objc func quit() { NSApp.terminate(nil) }
 
     // MARK: web view bridges

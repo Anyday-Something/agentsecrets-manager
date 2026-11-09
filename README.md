@@ -49,7 +49,7 @@ open ~/Applications/"AgentSecrets Menu.app"
 
 A key icon appears in your menu bar. Left-click opens the manager. Right-click offers *Open in Browser*, *Reload* and *Quit*.
 
-Prefer a browser tab? Run `python3 agentsecrets_gui.py` and open http://127.0.0.1:8787. Or use `./build_app.sh`, which builds a small launcher app that does the same thing.
+Prefer a browser tab? Run `python3 agentsecrets_gui.py`; it opens the browser for you (or open the link it prints, which includes the session token). Or use `./build_app.sh`, which builds a small launcher app that does the same thing.
 
 ## What you can do
 
@@ -79,7 +79,7 @@ Some details worth knowing:
 - **Local first.** Key names (never values) are cached in `snapshot.json`. Reads run in parallel, writes run one at a time, and all projects are preloaded at startup.
 - **Snappy CLI calls.** Commands run with `TERM=screen-256color`, so the CLI's terminal library never probes for colours or the cursor position. That saves about 5 seconds per command.
 - **Unset keys.** AgentSecrets stores a key only once it has a value. A key with no value anywhere (just added, or dragged in) is kept locally in `unset_keys.json` until you set it.
-- **Locked down.** The server checks the `Host` header and a random token created on each run, so other websites can't drive it.
+- **Locked down.** The server checks the `Host` header, so other websites can't drive it, and every API call needs a random token created on each run. The page itself carries no token: the app opens it as `http://127.0.0.1:8787/#t=…` (the fragment never reaches the server), and the URL is kept in a file only you can read, so other users and processes on the Mac can't pick it up.
 
 Logs are written to `~/Library/Logs/AgentSecretsManager.log`.
 
