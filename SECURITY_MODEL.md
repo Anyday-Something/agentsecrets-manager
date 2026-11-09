@@ -45,9 +45,9 @@ Shared threat model for the Anyday-Something repositories `agentos`, `foopoomoo`
 The server-written-rows rule plus field allowlists, `isActivityOrganizer`, collection permissions pushed by script and drift-checked, encrypted Appwrite attributes, signed mail-reply and unsubscribe tokens, Stripe webhook signature checks. Nhost: RLS roles with no bypass, enforced by `db/tests/schema_rules.sql`. FooPooMoo proxy: rate limits, budgets, body-size cap, MIME allowlist, HMAC-hashed ids. AgentOS: constant-time bearer token, Tailscale-only staging, an origin allowlist for probes. AgentSecrets: Host-header check, a per-run token, no values in the UI.
 
 ## Out of scope / accepted risk
-*None stated by the user yet.*
+- *(user)* The owner doesn't know `foopoomoo/server` (the Express web server) and isn't aware of it running anywhere. It has no auth and listens on all interfaces, so keep it local. Deploying it would need auth first.
 
 ## Open questions
 - Which assets matter most (payments, PII/chats, health data/AI budget, secrets)?
 - Which attackers count? Is staff/superadmin abuse accepted?
-- Is `matchmii-nhost` staging only? Is `agentos` undeployed? Is `foopoomoo/server` dev only?
+- Is `matchmii-nhost` staging only? Is `agentos` undeployed?
